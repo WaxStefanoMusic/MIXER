@@ -1,0 +1,79 @@
+name: Build & Publish Release
+
+# Si attiva quando pubblichi un tag di versione, es:
+#   git tag v1.2.0 && git push origin v1.2.0
+on:
+  push:
+    tags:
+      - "v*"
+
+# Il workflow pubblica la release nello STESSO repo (codice + release uniti),
+# quindi basta il GITHUB_TOKEN integrato con permesso di scrittura sui contenuti.
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout codice
+        uses: actions/checkout@v4
+
+      - name: Ricava la versione dal tag
+        id: ver
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"          # es. v1.2.0
+          $ver = $tag.TrimStart('v','V')           # es. 1.2.0
+          "tag=$tag"  >> $env:GITHUB_OUTPUT
+          "ver=$ver"  >> $env:GITHUB_OUTPUT
+          Write-Host "Tag=$tag  Versione=$ver"
+
+      - name: Configura (CMake + MSVC)
+        shell: pwsh
+        # Niente -G esplicito: CMake usa il Visual Studio installato sul runner
+        # (oggi VS 2026). Cosi' il workflow non si rompe quando l'immagine del
+        # runner cambia versione di Visual Studio.
+        run: |
+          cmake -S . -B build -A x64 `
+                -DMIXER_VERSION="${{ steps.ver.outputs.ver }}"
+
+      - name: Compila mixer.exe (Release)
+        shell: pwsh
+        run: cmake --build build --config Release --target mixer
+
+      - name: Installa Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Costruisci l'installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $iscc "/DMyAppVersion=${{ steps.ver.outputs.ver }}" "installer\mixer.iss"
+          if ($LASTEXITCODE -ne 0) { throw "ISCC fallito ($LASTEXITCODE)" }
+
+      - name: Estrai le note di rilascio dal messaggio del tag
+        id: notes
+        shell: pwsh
+        run: |
+          $body = git tag -l --format='%(contents:body)' "${{ steps.ver.outputs.tag }}"
+          if ([string]::IsNullOrWhiteSpace($body)) {
+            $body = "Aggiornamento di MIXER ${{ steps.ver.outputs.ver }}."
+          }
+          $body | Out-File -FilePath notes.txt -Encoding utf8
+          Write-Host $body
+
+      - name: Pubblica la release
+        shell: pwsh
+        env:
+          # Stesso repo: basta il token integrato di Actions (nessun PAT).
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $exe = "installer\MIXER_Setup_${{ steps.ver.outputs.ver }}.exe"
+          if (-not (Test-Path $exe)) { throw "Installer non trovato: $exe" }
+          gh release create "${{ steps.ver.outputs.tag }}" "$exe" `
+            --repo "${{ github.repository }}" `
+            --title "MIXER ${{ steps.ver.outputs.ver }}" `
+            --notes-file notes.txt

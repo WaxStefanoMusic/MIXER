@@ -1,0 +1,53 @@
+# Build outputs
+build/
+out/
+bin/
+obj/
+_deps/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.sdf
+*.opensdf
+*.VC.db
+*.VC.opendb
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+CMakeUserPresets.json
+cmake_install.cmake
+install_manifest.txt
+Testing/
+
+# Compiled
+*.exe
+*.dll
+*.lib
+*.pdb
+*.ilk
+*.obj
+*.o
+*.exp
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Tooling locale (Claude Code)
+.claude/
+
+# Local config
+*.local.json
+
+# Runtime files generati accanto all'exe
+mixer_imgui.ini
+*.log
+smoke_roundtrip.mxp
+
+# Dati disinstaller / file estranei
+unins*.dat
+unins*.exe

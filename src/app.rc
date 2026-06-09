@@ -1,0 +1,4 @@
+// Risorsa icona dell'applicazione MIXER.
+// L'ID numerico 1 fa s che Explorer/Windows usi questa come icona
+// principale dell'eseguibile (e dei collegamenti).
+1 ICON "mixer.ico"
