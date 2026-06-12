@@ -88,9 +88,26 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDi
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent runasoriginaluser
 
 [UninstallDelete]
-; Rimuovi anche eventuali ini/log generati a runtime accanto all'exe.
-Type: files; Name: "{app}\mixer_imgui.ini"
-Type: files; Name: "{app}\smoke.log"
-Type: files; Name: "{app}\startup.log"
-Type: dirifempty; Name: "{app}\Preset Salvati"
-Type: dirifempty; Name: "{app}"
+; Rimuovi TUTTO il contenuto della cartella d'installazione (exe, dll, preset
+; bundle, ini/log a runtime): non deve rimanere nulla.
+Type: filesandordirs; Name: "{app}"
+
+[Code]
+// Alla disinstallazione chiede se eliminare anche i preset dell'utente in
+// Documenti\MIXER. NB: i preset/impostazioni stanno la', non in Program Files.
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  PresetsDir: String;
+begin
+  if CurUninstallStep = usUninstall then
+  begin
+    PresetsDir := ExpandConstant('{userdocs}\MIXER');
+    if DirExists(PresetsDir) then
+    begin
+      if MsgBox('Vuoi eliminare anche i preset salvati?' + #13#10#13#10 +
+                'Cartella: ' + PresetsDir,
+                mbConfirmation, MB_YESNO) = IDYES then
+        DelTree(PresetsDir, True, True, True);
+    end;
+  end;
+end;

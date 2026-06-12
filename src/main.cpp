@@ -91,6 +91,119 @@ std::wstring exeDir()
     return p.substr(0, slash + 1);
 }
 
+// UTF-8 -> wide (inverso di narrow()).
+std::wstring widen(const std::string& s)
+{
+    if (s.empty()) return {};
+    int n = ::MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0);
+    std::wstring out(n, L'\0');
+    ::MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), out.data(), n);
+    return out;
+}
+
+// ---- Dati utente: Documenti\MIXER ------------------------------------------
+// Preset e impostazioni vivono in Documenti\MIXER (scrivibile senza admin,
+// sopravvive ad aggiornamenti/disinstallazioni dell'app), NON in Program Files.
+std::wstring documentsMixerDir()
+{
+    wchar_t buf[MAX_PATH] = L"";
+    if (SUCCEEDED(::SHGetFolderPathW(nullptr, CSIDL_PERSONAL, nullptr,
+                                     SHGFP_TYPE_CURRENT, buf)))
+    {
+        std::wstring d(buf);
+        if (!d.empty() && d.back() != L'\\') d += L'\\';
+        return d + L"MIXER\\";
+    }
+    return exeDir();  // fallback estremo
+}
+
+std::wstring presetsDir()   { return documentsMixerDir() + L"Preset\\"; }
+std::wstring settingsPath() { return documentsMixerDir() + L"settings.ini"; }
+
+void ensureDir(const std::wstring& dir)
+{
+    if (!dir.empty()) ::SHCreateDirectoryExW(nullptr, dir.c_str(), nullptr);
+}
+
+// Nome visualizzato del preset: "Default" se vuoto, altrimenti il nome file
+// senza estensione.
+std::wstring presetDisplayName(const std::wstring& path)
+{
+    if (path.empty()) return L"Default";
+    auto slash = path.find_last_of(L"\\/");
+    std::wstring name = (slash == std::wstring::npos) ? path : path.substr(slash + 1);
+    auto dot = name.find_last_of(L'.');
+    if (dot != std::wstring::npos) name = name.substr(0, dot);
+    return name;
+}
+
+// Prima esecuzione: crea Documenti\MIXER\Preset e, se vuota, ci copia i preset
+// di esempio installati accanto all'exe ({app}\Preset Salvati).
+void seedPresetsFromInstall()
+{
+    ensureDir(presetsDir());
+    const std::wstring dst = presetsDir();
+
+    WIN32_FIND_DATAW fd;
+    HANDLE h = ::FindFirstFileW((dst + L"*.mxp").c_str(), &fd);
+    if (h != INVALID_HANDLE_VALUE) { ::FindClose(h); return; }  // gia' popolata
+
+    const std::wstring src = exeDir() + L"Preset Salvati\\";
+    h = ::FindFirstFileW((src + L"*.mxp").c_str(), &fd);
+    if (h == INVALID_HANDLE_VALUE) return;
+    do {
+        ::CopyFileW((src + fd.cFileName).c_str(),
+                    (dst + fd.cFileName).c_str(), TRUE /*non sovrascrivere*/);
+    } while (::FindNextFileW(h, &fd));
+    ::FindClose(h);
+}
+
+// settings.ini: riga "default_preset=<path>". Vuoto = preset vergine.
+std::wstring loadDefaultPresetSetting()
+{
+    FILE* f = nullptr;
+    if (::_wfopen_s(&f, settingsPath().c_str(), L"rb") != 0 || !f) return {};
+    std::string content;
+    char buf[1024]; size_t n;
+    while ((n = ::fread(buf, 1, sizeof(buf), f)) > 0) content.append(buf, n);
+    ::fclose(f);
+
+    const std::string key = "default_preset=";
+    auto p = content.find(key);
+    if (p == std::string::npos) return {};
+    p += key.size();
+    auto end = content.find_first_of("\r\n", p);
+    std::string val = content.substr(p, end == std::string::npos ? std::string::npos : end - p);
+    return widen(val);
+}
+
+void saveDefaultPresetSetting(const std::wstring& path)
+{
+    ensureDir(documentsMixerDir());
+    FILE* f = nullptr;
+    if (::_wfopen_s(&f, settingsPath().c_str(), L"wb") != 0 || !f) return;
+    std::string line = "default_preset=" + narrow(path) + "\n";
+    ::fwrite(line.data(), 1, line.size(), f);
+    ::fclose(f);
+}
+
+// Disegna una spunta verde "a mano" (indipendente dal font), centrata
+// verticalmente nella riga corrente (altezza di un frame/pulsante).
+void drawGreenCheck()
+{
+    const float h  = ImGui::GetFontSize();
+    const float fh = ImGui::GetFrameHeight();
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    p.y += (fh - h) * 0.5f;
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImU32 col = IM_COL32(70, 210, 70, 255);
+    dl->AddLine(ImVec2(p.x + h * 0.12f, p.y + h * 0.55f),
+                ImVec2(p.x + h * 0.40f, p.y + h * 0.82f), col, 2.5f);
+    dl->AddLine(ImVec2(p.x + h * 0.40f, p.y + h * 0.82f),
+                ImVec2(p.x + h * 0.88f, p.y + h * 0.20f), col, 2.5f);
+    ImGui::Dummy(ImVec2(h, fh));
+}
+
 // Mappatura nomi friendly  display-name umani per i device noti.
 // Windows restituisce stringhe lunghissime come "Game Capture 4K60 Pro MK.2
 // Audio (Game Capture 4K60 Pro MK.2)" che intasano la UI; le accorciamo a
@@ -284,6 +397,8 @@ std::wstring openPresetDialog(HWND owner)
     ofn.lpstrFile = buf;
     ofn.nMaxFile = MAX_PATH;
     ofn.lpstrDefExt = L"mxp";
+    const std::wstring initDir = presetsDir();
+    ofn.lpstrInitialDir = initDir.c_str();
     ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY;
     if (!::GetOpenFileNameW(&ofn)) return {};
     return buf;
@@ -305,6 +420,8 @@ std::wstring savePresetDialog(HWND owner, const std::wstring& suggested)
     ofn.lpstrFile = buf;
     ofn.nMaxFile = MAX_PATH;
     ofn.lpstrDefExt = L"mxp";
+    const std::wstring initDir = presetsDir();
+    ofn.lpstrInitialDir = initDir.c_str();
     ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY;
     if (!::GetSaveFileNameW(&ofn)) return {};
     return buf;
@@ -367,7 +484,8 @@ struct UiState
     // esclusivo con exclusive_mode.
     bool lowlat_mode = false;
 
-    std::wstring current_preset_path;  // ultima path usata per save/open
+    std::wstring current_preset_path;  // preset attualmente caricato ("" = vergine/Default)
+    std::wstring default_preset_path;  // preset caricato all'avvio ("" = vergine), in settings.ini
     std::string  status_message;       // breve messaggio mostrato sopra la status bar
     double       status_until_time = 0.0;
 };
@@ -1149,6 +1267,43 @@ static void RenderMixerPanel(bool* p_open,
             }
         }
 
+    }
+
+    // ----- Preset corrente + gestione del preset predefinito -----
+    {
+        const std::string pname =
+            "Preset: " + narrow(presetDisplayName(ui.current_preset_path));
+        ImGui::TextUnformatted(pname.c_str());
+
+        if (ImGui::Button("Imposta come Predefinito"))
+        {
+            ui.default_preset_path = ui.current_preset_path;
+            saveDefaultPresetSetting(ui.default_preset_path);
+            setStatus(ui, "Preset predefinito impostato: si carichera' all'avvio.");
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Carica questo preset automaticamente al prossimo avvio dell'app.");
+
+        // Spunta verde se il preset corrente E' quello predefinito.
+        // Cambiando preset la spunta sparisce (current != default).
+        if (ui.current_preset_path == ui.default_preset_path)
+        {
+            ImGui::SameLine();
+            drawGreenCheck();
+        }
+
+        ImGui::SameLine(0, fs * 1.0f);
+        if (ImGui::Button("Ripristina Preset di Default"))
+        {
+            cfg = mixer::config::makeDefaultConfig();
+            cfg.normalize();
+            ui.current_preset_path.clear();
+            ui.default_preset_path.clear();
+            saveDefaultPresetSetting(L"");
+            setStatus(ui, "Preset vergine ripristinato e impostato come predefinito.");
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Torna al preset vergine e lo imposta come predefinito all'avvio.");
     }
 
     ImGui::Separator();
@@ -1988,8 +2143,6 @@ static void RenderMenuBar(UiState& ui,
     {
         ImGui::MenuItem("Mixer principale", nullptr, &ui.show_mixer);
         ImGui::MenuItem("Lista device audio", nullptr, &ui.show_devices);
-        ImGui::Separator();
-        ImGui::MenuItem("Guida rapida", nullptr, &ui.show_welcome);
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Aiuto"))
@@ -2401,29 +2554,27 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int)
     UpdateUiState update_ui;
     updater.checkAsync(MIXER_VERSION);
 
-    // Carica il preset di default all'avvio (se presente nel path standard).
-    // Se manca, resta la config di default (5 strip + 3 bus vuoti).
+    // Prima esecuzione: crea Documenti\MIXER\Preset e ci copia i preset di
+    // esempio installati (l'utente li trovera' in "Apri preset").
+    seedPresetsFromInstall();
+
+    // All'avvio il preset e' VERGINE, a meno che l'utente non ne abbia impostato
+    // uno come predefinito (pulsante "Imposta come Predefinito" -> settings.ini).
+    ui.default_preset_path = loadDefaultPresetSetting();
     bool preset_loaded = false;
+    if (!ui.default_preset_path.empty())
     {
-        const std::wstring fname =
-            L"Preset Salvati\\Registrazioni Elgato + Cuffie (Low Latency Audio).mxp";
-        // 1) accanto all'exe (installazione su qualsiasi PC)
-        // 2) fallback: path di sviluppo B:\MIXER (macchina dell'autore)
-        const std::wstring candidates[] = {
-            exeDir() + fname,
-            L"B:\\MIXER\\" + fname,
-        };
         mixer::config::MixerCfg loaded;
-        for (const auto& path : candidates)
+        if (mixer::config::loadFromFile(ui.default_preset_path, loaded))
         {
-            if (mixer::config::loadFromFile(path, loaded))
-            {
-                cfg = std::move(loaded);
-                cfg.normalize();
-                ui.current_preset_path = path;
-                preset_loaded = true;
-                break;
-            }
+            cfg = std::move(loaded);
+            cfg.normalize();
+            ui.current_preset_path = ui.default_preset_path;
+            preset_loaded = true;
+        }
+        else
+        {
+            ui.default_preset_path.clear();  // il file non esiste piu': torna a vergine
         }
     }
 
