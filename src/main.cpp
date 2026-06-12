@@ -2543,6 +2543,23 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int)
     ::ShowWindow(hwnd, SW_SHOWNORMAL);
     ::UpdateWindow(hwnd);
 
+    // Porta la finestra in primo piano all'avvio: senza questo, se un'altra app
+    // ha il focus, MIXER resterebbe nascosto dietro. AttachThreadInput aggira il
+    // blocco anti-focus-stealing di Windows. NON restiamo topmost: subito dopo
+    // l'ordine delle finestre torna normale (l'ultima app aperta sta davanti).
+    {
+        HWND  fg       = ::GetForegroundWindow();
+        DWORD fgThread = fg ? ::GetWindowThreadProcessId(fg, nullptr) : 0;
+        DWORD myThread = ::GetCurrentThreadId();
+        const bool attach = (fgThread != 0 && fgThread != myThread);
+        if (attach) ::AttachThreadInput(myThread, fgThread, TRUE);
+        ::SetForegroundWindow(hwnd);
+        ::BringWindowToTop(hwnd);
+        ::SetActiveWindow(hwnd);
+        ::SetFocus(hwnd);
+        if (attach) ::AttachThreadInput(myThread, fgThread, FALSE);
+    }
+
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
