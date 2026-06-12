@@ -187,21 +187,17 @@ void saveDefaultPresetSetting(const std::wstring& path)
     ::fclose(f);
 }
 
-// Disegna una spunta verde "a mano" (indipendente dal font), centrata
-// verticalmente nella riga corrente (altezza di un frame/pulsante).
-void drawGreenCheck()
+// Disegna una spunta verde "a mano" (indipendente dal font) di lato ~h px,
+// con l'angolo alto-sinistra in p. Disegna sul draw list della finestra, quindi
+// puo' essere sovrapposta a un pulsante.
+void drawGreenCheckAt(ImVec2 p, float h)
 {
-    const float h  = ImGui::GetFontSize();
-    const float fh = ImGui::GetFrameHeight();
-    ImVec2 p = ImGui::GetCursorScreenPos();
-    p.y += (fh - h) * 0.5f;
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    const ImU32 col = IM_COL32(70, 210, 70, 255);
+    const ImU32 col = IM_COL32(80, 220, 80, 255);
     dl->AddLine(ImVec2(p.x + h * 0.12f, p.y + h * 0.55f),
                 ImVec2(p.x + h * 0.40f, p.y + h * 0.82f), col, 2.5f);
     dl->AddLine(ImVec2(p.x + h * 0.40f, p.y + h * 0.82f),
                 ImVec2(p.x + h * 0.88f, p.y + h * 0.20f), col, 2.5f);
-    ImGui::Dummy(ImVec2(h, fh));
 }
 
 // Mappatura nomi friendly  display-name umani per i device noti.
@@ -1275,7 +1271,21 @@ static void RenderMixerPanel(bool* p_open,
             "Preset: " + narrow(presetDisplayName(ui.current_preset_path));
         ImGui::TextUnformatted(pname.c_str());
 
-        if (ImGui::Button("Imposta come Predefinito"))
+        // La spunta verde sta DENTRO il pulsante (a destra del testo) quando il
+        // preset corrente E' il predefinito; cambiando preset sparisce.
+        const bool is_default = (ui.current_preset_path == ui.default_preset_path);
+        const float chk = ImGui::GetFontSize();
+        const char* set_lbl = "Imposta come Predefinito";
+        const float set_w = ImGui::CalcTextSize(set_lbl).x
+                          + ImGui::GetStyle().FramePadding.x * 2.0f + chk * 1.6f;
+
+        ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.0f, 0.5f));
+        const bool clicked_set = ImGui::Button(set_lbl, ImVec2(set_w, 0));
+        ImGui::PopStyleVar();
+        const ImVec2 set_min = ImGui::GetItemRectMin();
+        const ImVec2 set_max = ImGui::GetItemRectMax();
+
+        if (clicked_set)
         {
             ui.default_preset_path = ui.current_preset_path;
             saveDefaultPresetSetting(ui.default_preset_path);
@@ -1284,13 +1294,9 @@ static void RenderMixerPanel(bool* p_open,
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Carica questo preset automaticamente al prossimo avvio dell'app.");
 
-        // Spunta verde se il preset corrente E' quello predefinito.
-        // Cambiando preset la spunta sparisce (current != default).
-        if (ui.current_preset_path == ui.default_preset_path)
-        {
-            ImGui::SameLine();
-            drawGreenCheck();
-        }
+        if (is_default)
+            drawGreenCheckAt(ImVec2(set_max.x - chk * 1.3f,
+                                    (set_min.y + set_max.y) * 0.5f - chk * 0.5f), chk);
 
         ImGui::SameLine(0, fs * 1.0f);
         if (ImGui::Button("Ripristina Preset di Default"))
