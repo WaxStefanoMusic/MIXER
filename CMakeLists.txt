@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 # La versione e' la SINGOLA fonte di verita': viene iniettata nell'app come
 # MIXER_VERSION (usata dall'updater per il confronto) e nell'installer dal tag
 # git in CI. Bumpala qui prima di taggare una release.
-project(MIXER VERSION 1.0.2 LANGUAGES CXX)
+project(MIXER VERSION 1.0.3 LANGUAGES CXX)
 
 if(NOT WIN32)
     message(FATAL_ERROR "MIXER is Windows-only (uses WASAPI).")

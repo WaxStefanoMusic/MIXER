@@ -1247,7 +1247,7 @@ static void RenderMixerPanel(bool* p_open,
             {
                 ImGui::SameLine();
                 ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.3f, 1.0f),
-                    " | warning: %s", hresultMessage(st.last_error));
+                    " | Warning: Device scollegato o disabilitato");
             }
         }
         else
@@ -1680,18 +1680,33 @@ static void RenderMixerPanel(bool* p_open,
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Mute: silenzia questa sorgente.");
         ImGui::SameLine();
         ImGui::Checkbox("S", &s.solo);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Solo: ascolta solo le strip in solo.");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("ascolta solo questa sorgente");
         ImGui::EndGroup();
 
-        // Input numerico dB editabile direttamente
-        ImGui::SetNextItemWidth(fs * 6.5f);
-        if (ImGui::InputFloat("##gnum", &s.gain_db, 0.5f, 3.0f, "%.1f dB"))
+        // Input numerico dB editabile (lasciato com'era) + pulsanti - / + con
+        // tooltip dedicati.
+        ImGui::SetNextItemWidth(fs * 4.2f);
+        if (ImGui::InputFloat("##gnum", &s.gain_db, 0.0f, 0.0f, "%.1f dB"))
             s.gain_db = std::clamp(s.gain_db, -60.0f, 12.0f);
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Click per scrivere il valore in dB.\n"
                               "Click destro per reset a 0 dB.");
         if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
             s.gain_db = 0.0f;
+        ImGui::SameLine(0, fs * 0.25f);
+        if (ImGui::Button("-##gdec", ImVec2(fs * 1.4f, 0)))
+            s.gain_db = std::clamp(s.gain_db - 0.5f, -60.0f, 12.0f);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Diminuisci dB\nClick destro per reset a 0 dB");
+            if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) s.gain_db = 0.0f;
+        }
+        ImGui::SameLine(0, fs * 0.2f);
+        if (ImGui::Button("+##ginc", ImVec2(fs * 1.4f, 0)))
+            s.gain_db = std::clamp(s.gain_db + 0.5f, -60.0f, 12.0f);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Aumenta dB\nClick destro per reset a 0 dB");
+            if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) s.gain_db = 0.0f;
+        }
 
         // Route: per ogni bus un toggle on/off + manopola volume di invio
         // (1..100%). Cos la stessa strip pu andare al Bus 1 al 50% e al
@@ -1841,15 +1856,30 @@ static void RenderMixerPanel(bool* p_open,
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Mute: silenzia questo bus.");
         ImGui::EndGroup();
 
-        // Input numerico dB editabile direttamente
-        ImGui::SetNextItemWidth(fs * 6.5f);
-        if (ImGui::InputFloat("##gnum", &b.gain_db, 0.5f, 3.0f, "%.1f dB"))
+        // Input numerico dB editabile (lasciato com'era) + pulsanti - / + con
+        // tooltip dedicati.
+        ImGui::SetNextItemWidth(fs * 4.2f);
+        if (ImGui::InputFloat("##gnum", &b.gain_db, 0.0f, 0.0f, "%.1f dB"))
             b.gain_db = std::clamp(b.gain_db, -60.0f, 12.0f);
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Click per scrivere il valore in dB.\n"
                               "Click destro per reset a 0 dB.");
         if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
             b.gain_db = 0.0f;
+        ImGui::SameLine(0, fs * 0.25f);
+        if (ImGui::Button("-##gdec", ImVec2(fs * 1.4f, 0)))
+            b.gain_db = std::clamp(b.gain_db - 0.5f, -60.0f, 12.0f);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Diminuisci dB\nClick destro per reset a 0 dB");
+            if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) b.gain_db = 0.0f;
+        }
+        ImGui::SameLine(0, fs * 0.2f);
+        if (ImGui::Button("+##ginc", ImVec2(fs * 1.4f, 0)))
+            b.gain_db = std::clamp(b.gain_db + 0.5f, -60.0f, 12.0f);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Aumenta dB\nClick destro per reset a 0 dB");
+            if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) b.gain_db = 0.0f;
+        }
 
         ImGui::Separator();
         ImGui::TextDisabled("bus '%s'", busShort(b.label).c_str());
