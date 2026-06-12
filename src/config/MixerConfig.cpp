@@ -109,7 +109,8 @@ bool saveToFile(const std::wstring& path, const MixerCfg& cfg)
         f << "bus." << i << ".label="   << b.label << "\n";
         f << "bus." << i << ".device="  << wToUtf8(b.device_id) << "\n";
         f << "bus." << i << ".gain_db=" << b.gain_db << "\n";
-        f << "bus." << i << ".mute="    << (b.mute ? "1" : "0") << "\n\n";
+        f << "bus." << i << ".mute="    << (b.mute ? "1" : "0") << "\n";
+        f << "bus." << i << ".solo="    << (b.solo ? "1" : "0") << "\n\n";
     }
 
     return f.good();
@@ -215,6 +216,7 @@ bool loadFromFile(const std::wstring& path, MixerCfg& out_cfg)
             else if (rest == "device")  b.device_id = utf8ToW(val);
             else if (rest == "gain_db") b.gain_db   = parseFloat(val);
             else if (rest == "mute")    b.mute      = parseBool(val);
+            else if (rest == "solo")    b.solo      = parseBool(val);
             continue;
         }
     }

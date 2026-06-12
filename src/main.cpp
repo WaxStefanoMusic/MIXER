@@ -1854,6 +1854,9 @@ static void RenderMixerPanel(bool* p_open,
         ImGui::Spacing();
         ImGui::Checkbox("M", &b.mute);
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Mute: silenzia questo bus.");
+        ImGui::SameLine();
+        ImGui::Checkbox("S", &b.solo);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("ascolta solo questo bus");
         ImGui::EndGroup();
 
         // Input numerico dB editabile (lasciato com'era) + pulsanti - / + con

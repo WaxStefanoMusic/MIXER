@@ -167,13 +167,17 @@ bool AudioEngine::start(const config::MixerCfg& cfg, int buffer_ms,
         b->device_id = bc.device_id;
         b->gain_lin.store(dbToLin(bc.gain_db));
         b->mute.store(bc.mute);
+        b->solo.store(bc.solo);
         buses_.push_back(std::move(b));
     }
 
-    // Ricomputa any_solo
+    // Ricomputa any_solo (strip) e any_bus_solo (bus)
     bool any_solo = false;
     for (auto& s : strips_) if (s->solo.load()) { any_solo = true; break; }
     any_solo_.store(any_solo);
+    bool any_bus_solo = false;
+    for (auto& b : buses_) if (b->solo.load()) { any_bus_solo = true; break; }
+    any_bus_solo_.store(any_bus_solo);
 
     // 2) Determina i bus "attivi" (con device assegnato).
     std::vector<bool> bus_active(buses_.size(), false);
@@ -293,6 +297,11 @@ bool AudioEngine::start(const config::MixerCfg& cfg, int buffer_ms,
 
             if (bus.mute.load(std::memory_order_relaxed))
                 return;  // dst gi a zero
+            // Solo a livello bus: se un qualsiasi bus e' in solo, i bus NON in
+            // solo restano muti.
+            if (any_bus_solo_.load(std::memory_order_relaxed)
+                && !bus.solo.load(std::memory_order_relaxed))
+                return;
 
             // Buffer di lavoro thread_local per leggere da una capture.
             thread_local std::vector<float> tmp;
@@ -453,11 +462,15 @@ void AudioEngine::updateParams(const config::MixerCfg& cfg)
         const auto& bc = cfg.buses[i];
         b.gain_lin.store(dbToLin(bc.gain_db), std::memory_order_relaxed);
         b.mute.store(bc.mute, std::memory_order_relaxed);
+        b.solo.store(bc.solo, std::memory_order_relaxed);
     }
 
     bool any_solo = false;
     for (auto& s : strips_) if (s->solo.load()) { any_solo = true; break; }
     any_solo_.store(any_solo, std::memory_order_relaxed);
+    bool any_bus_solo = false;
+    for (auto& b : buses_) if (b->solo.load()) { any_bus_solo = true; break; }
+    any_bus_solo_.store(any_bus_solo, std::memory_order_relaxed);
 }
 
 float AudioEngine::readStripPeak(size_t i, int ch)

@@ -34,6 +34,7 @@ struct BusCfg
     std::wstring device_id;  // sempre device render
     float        gain_db = 0.0f;
     bool         mute    = false;
+    bool         solo    = false;  // se un bus e' in solo, suonano solo i bus in solo
 };
 
 struct MixerCfg

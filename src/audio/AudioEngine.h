@@ -115,6 +115,7 @@ private:
         std::wstring        device_id;
         std::atomic<float>  gain_lin{1.0f};
         std::atomic<bool>   mute{false};
+        std::atomic<bool>   solo{false};
         // Indice nel vettore renders_ (-1 se non aperto).
         int                 render_idx = -1;
         // Peak meter del bus (uscita post-mixing).
@@ -131,6 +132,9 @@ private:
     // any_solo_ ricalcolato in updateParams: serve nel render callback per non
     // dover scorrere tutte le strip ogni callback.
     std::atomic<bool>   any_solo_{false};
+    // any_bus_solo_: true se almeno un bus e' in solo. Nel render callback un
+    // bus non in solo viene mutato (come per gli strip, ma a livello bus).
+    std::atomic<bool>   any_bus_solo_{false};
     std::atomic<bool>   running_{false};
     std::atomic<long>   last_error_{0};
     // True = bypass dBFS gain & soft-clip (passthrough puro).
