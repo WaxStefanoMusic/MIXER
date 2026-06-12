@@ -1247,7 +1247,7 @@ static void RenderMixerPanel(bool* p_open,
             {
                 ImGui::SameLine();
                 ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.3f, 1.0f),
-                    " | Warning: Device scollegato o disabilitato");
+                    " | Warning: device scollegato o disabilitato");
             }
         }
         else
