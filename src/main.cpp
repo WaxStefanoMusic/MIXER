@@ -1680,7 +1680,7 @@ static void RenderMixerPanel(bool* p_open,
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Mute: silenzia questa sorgente.");
         ImGui::SameLine();
         ImGui::Checkbox("S", &s.solo);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("ascolta solo questa sorgente");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Solo: ascolta solo questa sorgente");
         ImGui::EndGroup();
 
         // Input numerico dB editabile (lasciato com'era) + pulsanti - / + con
@@ -1856,7 +1856,7 @@ static void RenderMixerPanel(bool* p_open,
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Mute: silenzia questo bus.");
         ImGui::SameLine();
         ImGui::Checkbox("S", &b.solo);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("ascolta solo questo bus");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Solo: ascolta solo questa sorgente");
         ImGui::EndGroup();
 
         // Input numerico dB editabile (lasciato com'era) + pulsanti - / + con
