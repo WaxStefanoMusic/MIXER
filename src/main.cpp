@@ -1632,8 +1632,8 @@ static void RenderMixerPanel(bool* p_open,
         ImGui::VSliderFloat("##g", ImVec2(fs * 1.6f, fader_h),
                             &s.gain_db, -60.0f, 12.0f, "%.1f");
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Trascina per regolare il livello in dB.\n"
-                              "Click destro o doppio click: reset a 0 dB.");
+            ImGui::SetTooltip("Trascina per regolare il volume in dB.\n"
+                              "Click destro: reset a 0 dB.");
         if (ImGui::IsItemHovered()
             && (ImGui::IsMouseClicked(ImGuiMouseButton_Right)
                 || ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)))
@@ -1808,8 +1808,8 @@ static void RenderMixerPanel(bool* p_open,
         ImGui::VSliderFloat("##g", ImVec2(fs * 1.6f, fader_h),
                             &b.gain_db, -60.0f, 12.0f, "%.1f");
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Trascina per regolare il livello in dB.\n"
-                              "Click destro o doppio click: reset a 0 dB.");
+            ImGui::SetTooltip("Trascina per regolare il volume in dB.\n"
+                              "Click destro: reset a 0 dB.");
         if (ImGui::IsItemHovered()
             && (ImGui::IsMouseClicked(ImGuiMouseButton_Right)
                 || ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)))
