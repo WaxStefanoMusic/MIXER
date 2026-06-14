@@ -1724,7 +1724,7 @@ static void RenderMixerPanel(bool* p_open,
             if (ImGui::IsItemHovered())
             {
                 ImGui::SetTooltip("%s questa sorgente al bus '%s'",
-                                  on ? "Non inviare pi" : "Invia",
+                                  on ? "Non inviare" : "Invia",
                                   cfg.buses[b].label.c_str());
             }
 
