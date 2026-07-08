@@ -2636,6 +2636,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int)
                           "del preset e premi 'Avvia mixer'.", 8.0);
     }
 
+    bool swapchain_occluded = false;
     while (!request_exit)
     {
         MSG msg;
@@ -2646,6 +2647,18 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int)
             if (msg.message == WM_QUIT) request_exit = true;
         }
         if (request_exit) break;
+
+        // Non renderizzare (e non saturare la GPU) quando la finestra e'
+        // minimizzata o completamente coperta: senza vsync attivo il loop
+        // girerebbe a briglia sciolta occupando la GPU in background.
+        if (::IsIconic(hwnd)) { ::Sleep(100); continue; }
+        if (swapchain_occluded
+            && g_pSwapChain->Present(0, DXGI_PRESENT_TEST) == DXGI_STATUS_OCCLUDED)
+        {
+            ::Sleep(20);
+            continue;
+        }
+        swapchain_occluded = false;
 
         if (g_ResizeWidth != 0 && g_ResizeHeight != 0)
         {
@@ -2745,7 +2758,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int)
         g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, cc);
         ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
 
-        g_pSwapChain->Present(1, 0);
+        swapchain_occluded = (g_pSwapChain->Present(1, 0) == DXGI_STATUS_OCCLUDED);
     }
 
     engine.stop();
