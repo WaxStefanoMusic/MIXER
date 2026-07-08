@@ -1142,21 +1142,6 @@ bool routeButton(const char* id, ImU32 color_on, bool active, float side)
     return clicked;
 }
 
-// Restituisce ASCII abbreviato di un'etichetta bus (es. "Cuf" da "Cuffie").
-std::string busShort(const std::string& label)
-{
-    if (label.empty()) return "?";
-    std::string out;
-    for (char c : label)
-    {
-        if (out.size() >= 3) break;
-        if ((unsigned char)c >= 0x80) continue; // skippa non-ASCII per evitare glyph mancanti
-        out.push_back(c);
-    }
-    if (out.empty()) out = "B";
-    return out;
-}
-
 } // namespace
 
 static void RenderMixerPanel(bool* p_open,
@@ -1885,7 +1870,7 @@ static void RenderMixerPanel(bool* p_open,
         }
 
         ImGui::Separator();
-        ImGui::TextDisabled("bus '%s'", busShort(b.label).c_str());
+        ImGui::TextDisabled("bus '%s'", b.label.c_str());
 
         ImGui::EndChild();
         ImVec2 mn = ImGui::GetItemRectMin(), mx = ImGui::GetItemRectMax();
