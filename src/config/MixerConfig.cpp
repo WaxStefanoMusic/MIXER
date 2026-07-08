@@ -85,7 +85,10 @@ bool saveToFile(const std::wstring& path, const MixerCfg& cfg)
     f << "# MIXER preset file\n";
     f << "version=" << cfg.version << "\n";
     f << "strips=" << cfg.strips.size() << "\n";
-    f << "buses="  << cfg.buses.size()  << "\n\n";
+    f << "buses="  << cfg.buses.size()  << "\n";
+    f << "buffer_ms="      << cfg.buffer_ms << "\n";
+    f << "exclusive_mode=" << (cfg.exclusive_mode ? "1" : "0") << "\n";
+    f << "low_latency="    << (cfg.low_latency    ? "1" : "0") << "\n\n";
 
     for (size_t i = 0; i < cfg.strips.size(); ++i)
     {
@@ -166,6 +169,9 @@ bool loadFromFile(const std::wstring& path, MixerCfg& out_cfg)
         if (key == "version")      { c.version = parseInt(val, 1); continue; }
         if (key == "strips")       { declared_strips = parseInt(val); continue; }
         if (key == "buses")        { declared_buses  = parseInt(val); continue; }
+        if (key == "buffer_ms")      { c.buffer_ms = parseInt(val, 3); continue; }
+        if (key == "exclusive_mode") { c.exclusive_mode = parseBool(val); continue; }
+        if (key == "low_latency")    { c.low_latency = parseBool(val); continue; }
 
         if (starts_with(key, "strip."))
         {

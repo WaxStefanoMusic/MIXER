@@ -2121,6 +2121,9 @@ static void RenderMenuBar(UiState& ui,
                 {
                     cfg = std::move(loaded);
                     cfg.normalize();
+                    ui.buffer_ms      = cfg.buffer_ms;
+                    ui.exclusive_mode = cfg.exclusive_mode;
+                    ui.lowlat_mode    = cfg.low_latency;
                     ui.current_preset_path = path;
                     setStatus(ui, "Preset caricato: " + narrow(path));
                 }
@@ -2610,6 +2613,9 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int)
         {
             cfg = std::move(loaded);
             cfg.normalize();
+            ui.buffer_ms      = cfg.buffer_ms;
+            ui.exclusive_mode = cfg.exclusive_mode;
+            ui.lowlat_mode    = cfg.low_latency;
             ui.current_preset_path = ui.default_preset_path;
             preset_loaded = true;
         }
@@ -2654,6 +2660,13 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int)
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
 
+        // Le impostazioni audio globali vivono in UiState ma vengono salvate col
+        // preset: rispecchiale in cfg a ogni frame cosi' ogni "Salva preset" le
+        // include (e "Apri preset" le riporta in UiState al caricamento).
+        cfg.buffer_ms      = ui.buffer_ms;
+        cfg.exclusive_mode = ui.exclusive_mode;
+        cfg.low_latency    = ui.lowlat_mode;
+
         bool request_refresh = false;
         RenderMenuBar(ui, cfg, test_stream, hwnd, request_refresh, request_exit,
                       updater, update_ui);
@@ -2682,6 +2695,9 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int)
                 {
                     cfg = std::move(L);
                     cfg.normalize();
+                    ui.buffer_ms      = cfg.buffer_ms;
+                    ui.exclusive_mode = cfg.exclusive_mode;
+                    ui.lowlat_mode    = cfg.low_latency;
                     ui.current_preset_path = p;
                     setStatus(ui, "Preset caricato.");
                 }

@@ -43,6 +43,11 @@ struct MixerCfg
     std::vector<StripCfg>  strips;
     std::vector<BusCfg>    buses;
 
+    // Impostazioni audio globali salvate col preset (default = come UiState).
+    int   buffer_ms      = 3;      // latenza richiesta in ms
+    bool  exclusive_mode = false;  // WASAPI exclusive
+    bool  low_latency    = false;  // IAudioClient3 low-latency (IAC3)
+
     // Allinea la lunghezza di ogni strip.routes a buses.size().
     void normalize();
 };
