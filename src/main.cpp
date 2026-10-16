@@ -2040,7 +2040,7 @@ static void RenderMixerPanel(bool* p_open,
     // Etichetta in alto a sinistra
     dl->AddText(ImVec2(canvas_p0.x + 8, canvas_p0.y + 4),
                 IM_COL32(160, 165, 175, 255),
-                "Routing audio  (sorgente  bus)");
+                "Routing audio  (sorgente -> bus)");
 
     // Linee verticali tenui per i centri delle strip e dei bus (riferimento)
     for (float x : strip_center_x)
@@ -2053,6 +2053,18 @@ static void RenderMixerPanel(bool* p_open,
                         IM_COL32(40, 44, 50, 255), 1.0f);
 
     const float lane_top = canvas_p0.y + fs * 1.6f;
+
+    // Punta di freccia piena con la punta in `tip`, orientata lungo (dx, dy).
+    const float arrow_len = fs * 0.55f;
+    const float arrow_hw  = fs * 0.32f;
+    auto drawArrow = [&](ImVec2 tip, float dx, float dy, ImU32 col)
+    {
+        const ImVec2 base(tip.x - dx * arrow_len, tip.y - dy * arrow_len);
+        dl->AddTriangleFilled(tip,
+                              ImVec2(base.x - dy * arrow_hw, base.y + dx * arrow_hw),
+                              ImVec2(base.x + dy * arrow_hw, base.y - dx * arrow_hw),
+                              col);
+    };
 
     // Per ogni bus, una lane: drop verticali dalle strip routate + rail + drop al bus.
     for (size_t b = 0; b < cfg.buses.size(); ++b)
@@ -2092,16 +2104,28 @@ static void RenderMixerPanel(bool* p_open,
         // Rail orizzontale
         dl->AddLine(ImVec2(left_x, y), ImVec2(right_x, y), col_strong, 3.0f);
 
-        // Drop verticali dalle strip
+        // Drop verticali dalle strip, con freccia verso il basso (il suono
+        // scende dalla strip nella rail di questo bus).
         for (float x : active_xs)
         {
             dl->AddLine(ImVec2(x, canvas_p0.y + 2), ImVec2(x, y), col_strong, 2.0f);
             dl->AddCircleFilled(ImVec2(x, y), 4.5f, col_strong);
+            drawArrow(ImVec2(x, y - fs * 0.35f), 0.0f, 1.0f, col_strong);
         }
-        // Drop su al bus
-        dl->AddLine(ImVec2(bus_center_x[b], y), ImVec2(bus_center_x[b], canvas_p0.y + 2),
+        // Freccia lungo la rail verso il bus, nel tratto tra l'ultima strip e
+        // il bus (se c'e' spazio).
+        const float last_strip_x =
+            *std::max_element(active_xs.begin(), active_xs.end());
+        if (bus_center_x[b] - last_strip_x > arrow_len * 3.0f)
+            drawArrow(ImVec2((last_strip_x + bus_center_x[b]) * 0.5f
+                                 + arrow_len * 0.5f, y),
+                      1.0f, 0.0f, col_strong);
+        // Risalita al bus, con la punta della freccia che entra nel bus.
+        dl->AddLine(ImVec2(bus_center_x[b], y),
+                    ImVec2(bus_center_x[b], canvas_p0.y + 2 + arrow_len),
                     col_strong, 2.5f);
         dl->AddCircleFilled(ImVec2(bus_center_x[b], y), 5.5f, col_strong);
+        drawArrow(ImVec2(bus_center_x[b], canvas_p0.y + 2), 0.0f, -1.0f, col_strong);
 
         dl->AddText(ImVec2(right_x + 8, y - fs * 0.65f), col_strong, lbl);
     }
