@@ -55,6 +55,22 @@ static ID3D11RenderTargetView*  g_mainRenderTargetView = nullptr;
 static UINT                     g_ResizeWidth = 0;
 static UINT                     g_ResizeHeight = 0;
 
+// ---- Icona nella system tray -----------------------------------------------
+// Cliccando la X la finestra si nasconde e MIXER resta attivo nell'area di
+// notifica (come NVIDIA App / Logitech G HUB). Si esce davvero da File > Esci
+// o dal menu dell'icona.
+constexpr UINT WM_APP_TRAY   = WM_APP + 1;  // callback dell'icona
+constexpr UINT WM_APP_SHOW   = WM_APP + 2;  // "mostrati" (inviato da una 2a istanza)
+constexpr UINT IDM_TRAY_OPEN = 1001;
+constexpr UINT IDM_TRAY_EXIT = 1002;
+static NOTIFYICONDATAW          g_tray = {};
+static bool                     g_tray_added = false;
+static bool                     g_tray_hint_shown = false;
+static bool                     g_exit_requested = false;
+static UINT                     g_msg_taskbar_created = 0;
+static void TrayAdd(HWND hWnd);
+static void TrayRemove();
+
 static bool CreateDeviceD3D(HWND hWnd);
 static void CleanupDeviceD3D();
 static void CreateRenderTarget();
@@ -2207,7 +2223,7 @@ static void RenderMenuBar(UiState& ui,
         if (ImGui::MenuItem("Aggiorna lista device", "F5"))
             request_refresh = true;
         ImGui::Separator();
-        if (ImGui::MenuItem("Esci", "Alt+F4"))
+        if (ImGui::MenuItem("Esci"))
             request_exit = true;
         ImGui::EndMenu();
     }
@@ -2461,6 +2477,24 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int)
             return runSmokeTest();
     }
 
+    // Istanza unica: se MIXER e' gia' in esecuzione (magari nascosto nella
+    // tray) riporta in primo piano quella finestra invece di aprire un secondo
+    // motore audio sugli stessi device.
+    HANDLE instance_mutex =
+        ::CreateMutexW(nullptr, FALSE, L"Local\\MIXER_SingleInstance");
+    if (instance_mutex && ::GetLastError() == ERROR_ALREADY_EXISTS)
+    {
+        if (HWND other = ::FindWindowW(L"MIXER", nullptr))
+        {
+            DWORD pid = 0;
+            ::GetWindowThreadProcessId(other, &pid);
+            ::AllowSetForegroundWindow(pid);
+            ::PostMessageW(other, WM_APP_SHOW, 0, 0);
+        }
+        ::CloseHandle(instance_mutex);
+        return 0;
+    }
+
     enableDpiAwareness();
 
     WNDCLASSEXW wc = { sizeof(wc), CS_CLASSDC, WndProc, 0L, 0L,
@@ -2577,6 +2611,9 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int)
     ::ShowWindow(hwnd, SW_SHOWNORMAL);
     ::UpdateWindow(hwnd);
 
+    g_msg_taskbar_created = ::RegisterWindowMessageW(L"TaskbarCreated");
+    TrayAdd(hwnd);
+
     // Porta la finestra in primo piano all'avvio: senza questo, se un'altra app
     // ha il focus, MIXER resterebbe nascosto dietro. AttachThreadInput aggira il
     // blocco anti-focus-stealing di Windows. NON restiamo topmost: subito dopo
@@ -2692,12 +2729,18 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int)
             ::DispatchMessage(&msg);
             if (msg.message == WM_QUIT) request_exit = true;
         }
+        if (g_exit_requested) request_exit = true;
         if (request_exit) break;
 
         // Non renderizzare (e non saturare la GPU) quando la finestra e'
-        // minimizzata o completamente coperta: senza vsync attivo il loop
-        // girerebbe a briglia sciolta occupando la GPU in background.
-        if (::IsIconic(hwnd)) { ::Sleep(100); continue; }
+        // minimizzata, nascosta nella tray o completamente coperta: senza
+        // vsync attivo il loop girerebbe a briglia sciolta occupando la GPU in
+        // background. Si attende un messaggio (es. click sull'icona) o 100 ms.
+        if (::IsIconic(hwnd) || !::IsWindowVisible(hwnd))
+        {
+            ::MsgWaitForMultipleObjects(0, nullptr, FALSE, 100, QS_ALLINPUT);
+            continue;
+        }
         if (swapchain_occluded
             && g_pSwapChain->Present(0, DXGI_PRESENT_TEST) == DXGI_STATUS_OCCLUDED)
         {
@@ -2819,9 +2862,81 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int)
     ImGui::DestroyContext();
 
     CleanupDeviceD3D();
+    TrayRemove();
     ::DestroyWindow(hwnd);
     ::UnregisterClassW(wc.lpszClassName, wc.hInstance);
+    if (instance_mutex) ::CloseHandle(instance_mutex);
     return 0;
+}
+
+// ---- System tray ------------------------------------------------------------
+
+static void TrayAdd(HWND hWnd)
+{
+    g_tray = {};
+    g_tray.cbSize = sizeof(g_tray);
+    g_tray.hWnd   = hWnd;
+    g_tray.uID    = 1;
+    g_tray.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP | NIF_SHOWTIP;
+    g_tray.uCallbackMessage = WM_APP_TRAY;
+    g_tray.hIcon = (HICON)::LoadImageW(::GetModuleHandleW(nullptr),
+                                       MAKEINTRESOURCEW(1), IMAGE_ICON,
+                                       ::GetSystemMetrics(SM_CXSMICON),
+                                       ::GetSystemMetrics(SM_CYSMICON), 0);
+    wcscpy_s(g_tray.szTip, L"MIXER");
+    g_tray_added = ::Shell_NotifyIconW(NIM_ADD, &g_tray) != FALSE;
+    if (g_tray_added)
+    {
+        g_tray.uVersion = NOTIFYICON_VERSION_4;
+        ::Shell_NotifyIconW(NIM_SETVERSION, &g_tray);
+    }
+}
+
+static void TrayRemove()
+{
+    if (g_tray_added) ::Shell_NotifyIconW(NIM_DELETE, &g_tray);
+    g_tray_added = false;
+    if (g_tray.hIcon) { ::DestroyIcon(g_tray.hIcon); g_tray.hIcon = nullptr; }
+}
+
+static void ShowFromTray(HWND hWnd)
+{
+    ::ShowWindow(hWnd, ::IsIconic(hWnd) ? SW_RESTORE : SW_SHOW);
+    ::SetForegroundWindow(hWnd);
+}
+
+static void HideToTray(HWND hWnd)
+{
+    ::ShowWindow(hWnd, SW_HIDE);
+    if (!g_tray_hint_shown)
+    {
+        // Avviso una sola volta per sessione: l'app non si e' chiusa.
+        g_tray_hint_shown = true;
+        NOTIFYICONDATAW n = g_tray;
+        n.uFlags = NIF_INFO;
+        n.dwInfoFlags = NIIF_USER | NIIF_RESPECT_QUIET_TIME;
+        wcscpy_s(n.szInfoTitle, L"MIXER \u00e8 ancora attivo");
+        wcscpy_s(n.szInfo, L"L'audio continua a funzionare in background. "
+                           L"Clicca l'icona per riaprire, tasto destro > Esci "
+                           L"per chiudere.");
+        ::Shell_NotifyIconW(NIM_MODIFY, &n);
+    }
+}
+
+static void ShowTrayMenu(HWND hWnd, int x, int y)
+{
+    HMENU menu = ::CreatePopupMenu();
+    if (!menu) return;
+    ::AppendMenuW(menu, MF_STRING, IDM_TRAY_OPEN, L"Apri MIXER");
+    ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    ::AppendMenuW(menu, MF_STRING, IDM_TRAY_EXIT, L"Esci");
+    ::SetMenuDefaultItem(menu, IDM_TRAY_OPEN, FALSE);
+    // Senza SetForegroundWindow il menu non si chiude cliccando altrove.
+    ::SetForegroundWindow(hWnd);
+    ::TrackPopupMenu(menu, TPM_RIGHTBUTTON | TPM_BOTTOMALIGN, x, y, 0, hWnd,
+                     nullptr);
+    ::PostMessageW(hWnd, WM_NULL, 0, 0);
+    ::DestroyMenu(menu);
 }
 
 // ---- D3D + WndProc boilerplate --------------------------------------------
@@ -2899,8 +3014,57 @@ static LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_SYSCOMMAND:
         if ((wParam & 0xfff0) == SC_KEYMENU) return 0;
         break;
+    case WM_CLOSE:
+        // X / Alt+F4: nascondi nella tray invece di chiudere (solo se l'icona
+        // c'e', altrimenti l'app resterebbe irraggiungibile).
+        if (g_tray_added && !g_exit_requested)
+        {
+            HideToTray(hWnd);
+            return 0;
+        }
+        break;
+    case WM_APP_TRAY:
+        switch (LOWORD(lParam))
+        {
+        case NIN_SELECT:
+        case NIN_KEYSELECT:
+        case WM_LBUTTONDBLCLK:
+            ShowFromTray(hWnd);
+            break;
+        case WM_CONTEXTMENU:
+            ShowTrayMenu(hWnd, (short)LOWORD(wParam), (short)HIWORD(wParam));
+            break;
+        }
+        return 0;
+    case WM_APP_SHOW:
+        ShowFromTray(hWnd);
+        return 0;
+    case WM_COMMAND:
+        if (LOWORD(wParam) == IDM_TRAY_OPEN) { ShowFromTray(hWnd); return 0; }
+        if (LOWORD(wParam) == IDM_TRAY_EXIT)
+        {
+            g_exit_requested = true;   // il main loop esce e chiude tutto
+            return 0;
+        }
+        break;
+    case WM_QUERYENDSESSION:
+        return TRUE;   // spegnimento/logoff o installer: lascia chiudere
+    case WM_ENDSESSION:
+        if (wParam)
+        {
+            g_exit_requested = true;
+            ::PostQuitMessage(0);
+        }
+        return 0;
     case WM_DESTROY:
         ::PostQuitMessage(0);
+        return 0;
+    }
+    // Explorer riavviato: l'icona va ricreata.
+    if (g_msg_taskbar_created != 0 && msg == g_msg_taskbar_created)
+    {
+        if (g_tray.hIcon) { ::DestroyIcon(g_tray.hIcon); g_tray.hIcon = nullptr; }
+        TrayAdd(hWnd);
         return 0;
     }
     return ::DefWindowProcW(hWnd, msg, wParam, lParam);
