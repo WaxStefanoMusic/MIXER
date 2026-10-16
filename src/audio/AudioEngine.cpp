@@ -116,6 +116,8 @@ void mixInto(float* dst, uint32_t dst_frames, uint32_t dst_ch,
 }
 
 // Chiave per identificare univocamente una cattura (device + modalit).
+constexpr int kRingMs = 1000;
+
 std::wstring captureKey(const std::wstring& device_id, bool loopback)
 {
     return (loopback ? L"L|" : L"C|") + device_id;
@@ -221,13 +223,15 @@ bool AudioEngine::start(const config::MixerCfg& cfg, int buffer_ms,
         // Tenta exclusive/lowlat (internamente: loopback forza shared per
         // exclusive ma IAC3 lowlat funziona anche col loopback). Se fallisce,
         // ricrea e riprova in shared normale.
-        bool ok = cap->start(dev_id, loopback, buffer_ms, 200,
+        // Ring da 1 s: deve contenere il livello target del DriftResampler
+        // (richiesta render + pacchetto + margine) con ampio spazio sopra.
+        bool ok = cap->start(dev_id, loopback, buffer_ms, kRingMs,
                              exclusive, lowlat);
         if (!ok && (exclusive || lowlat))
         {
             cap = std::make_unique<WasapiCaptureStream>();
             cap->setReaderCount(count);
-            ok = cap->start(dev_id, loopback, buffer_ms, 200, false, false);
+            ok = cap->start(dev_id, loopback, buffer_ms, kRingMs, false, false);
         }
         if (!ok)
         {
@@ -245,16 +249,22 @@ bool AudioEngine::start(const config::MixerCfg& cfg, int buffer_ms,
     {
         auto& s = *strips_[i];
         s.capture_idx = -1;
+        s.resampler_per_bus.clear();
+        s.resampler_per_bus.resize(buses_.size());
         if (s.device_id.empty()) continue;
         const std::wstring key = captureKey(s.device_id, s.loopback);
         auto it = capture_idx_by_key.find(key);
         if (it == capture_idx_by_key.end()) continue;  // capture failed to open
         s.capture_idx = it->second;
+        const WasapiCaptureStream& cap = *captures_[s.capture_idx];
         for (size_t b = 0; b < buses_.size(); ++b)
         {
             if (!bus_active[b]) continue;
             if (b >= s.routes.size() || !s.routes[b]->load()) continue;
             s.reader_idx_per_bus[b] = (int)next_reader_for_key[key]++;
+            auto rs = std::make_unique<DriftResampler>();
+            rs->prepare(cap.sampleRate(), cap.channels());
+            s.resampler_per_bus[b] = std::move(rs);
         }
     }
 
@@ -283,7 +293,7 @@ bool AudioEngine::start(const config::MixerCfg& cfg, int buffer_ms,
         // NIENTE alloc/lock/syscall qui dentro: solo memcpy/atomic/math.
         // Reuse di un thread_local buffer per la lettura dalla cattura.
         auto pull = [this, bus_index]
-            (float* dst, uint32_t frames, uint32_t out_ch, uint32_t /*sr*/)
+            (float* dst, uint32_t frames, uint32_t out_ch, uint32_t out_sr)
         {
             // Clear output.
             std::memset(dst, 0, (size_t)frames * out_ch * sizeof(float));
@@ -295,13 +305,13 @@ bool AudioEngine::start(const config::MixerCfg& cfg, int buffer_ms,
                 ? 1.0f
                 : bus.gain_lin.load(std::memory_order_relaxed);
 
-            if (bus.mute.load(std::memory_order_relaxed))
-                return;  // dst gi a zero
-            // Solo a livello bus: se un qualsiasi bus e' in solo, i bus NON in
-            // solo restano muti.
-            if (any_bus_solo_.load(std::memory_order_relaxed)
-                && !bus.solo.load(std::memory_order_relaxed))
-                return;
+            // Bus muto (o escluso dal solo di un altro bus): si continua
+            // comunque a consumare le catture, altrimenti i ring si
+            // riempiono e allo sblocco si sentirebbe audio vecchio.
+            const bool bus_silent =
+                bus.mute.load(std::memory_order_relaxed)
+                || (any_bus_solo_.load(std::memory_order_relaxed)
+                    && !bus.solo.load(std::memory_order_relaxed));
 
             // Buffer di lavoro thread_local per leggere da una capture.
             thread_local std::vector<float> tmp;
@@ -313,22 +323,27 @@ bool AudioEngine::start(const config::MixerCfg& cfg, int buffer_ms,
                 if ((size_t)bus_index >= s.reader_idx_per_bus.size()) continue;
                 const int reader_idx = s.reader_idx_per_bus[bus_index];
                 if (reader_idx < 0) continue;     // non routata a questo bus
+                DriftResampler* rs = s.resampler_per_bus[bus_index].get();
+                if (!rs) continue;
+
+                WasapiCaptureStream& cap = *captures_[s.capture_idx];
+                const uint32_t cap_ch = cap.channels();
+                if (cap_ch == 0) continue;
+
+                // Lettura SEMPRE (anche se muta/non in solo/rotta spenta a
+                // runtime): il resampler tiene il ring al livello target e
+                // compensa il drift di clock tra device di cattura e bus.
+                const size_t want = (size_t)frames * cap_ch;
+                if (tmp.size() < want) tmp.resize(want);
+                rs->process(cap, (size_t)reader_idx, tmp.data(), frames, out_sr);
+
+                if (bus_silent) continue;
                 // (la rotta runtime pu venire mutata via updateParams ma
                 //  reader_idx_per_bus  fisso una volta avviato l'engine; per
                 //  rispettare il toggle a runtime controlliamo anche s.routes)
                 if (!s.routes[bus_index]->load(std::memory_order_relaxed)) continue;
                 if (s.mute.load(std::memory_order_relaxed)) continue;
                 if (any_solo && !s.solo.load(std::memory_order_relaxed)) continue;
-
-                WasapiCaptureStream& cap = *captures_[s.capture_idx];
-                const uint32_t cap_ch = cap.channels();
-                if (cap_ch == 0) continue;
-
-                const size_t want = (size_t)frames * cap_ch;
-                if (tmp.size() < want) tmp.resize(want);
-                const size_t got = cap.read((size_t)reader_idx, tmp.data(), want);
-                if (got < want)
-                    std::memset(tmp.data() + got, 0, (want - got) * sizeof(float));
 
                 const float strip_gain = bypass
                     ? 1.0f
@@ -492,6 +507,17 @@ AudioEngine::Status AudioEngine::getStatus() const
     st.captures_opened = captures_.size();
     st.renders_opened  = renders_.size();
     st.last_error = last_error_.load();
+    for (const auto& sp : strips_)
+        for (const auto& rs : sp->resampler_per_bus)
+        {
+            if (!rs) continue;
+            st.underruns += rs->underruns();
+            st.overflows += rs->overflows();
+            st.max_drift_ppm = std::max(st.max_drift_ppm,
+                                        std::fabs(rs->driftPpm()));
+        }
+    for (const auto& r : renders_)  if (r) st.render_starved   += r->starvations();
+    for (const auto& c : captures_) if (c) st.capture_glitches += c->discontinuities();
     std::ostringstream ss;
     ss << "captures=" << st.captures_opened
        << " renders=" << st.renders_opened;

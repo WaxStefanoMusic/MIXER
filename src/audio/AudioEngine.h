@@ -1,5 +1,6 @@
 #pragma once
 
+#include "DriftResampler.h"
 #include "WasapiCaptureStream.h"
 #include "WasapiRenderStream.h"
 #include "../config/MixerConfig.h"
@@ -25,8 +26,8 @@ namespace mixer::audio {
 //     senza lock.
 //
 // Limitazioni MVP:
-//   - Sample rate dei device assunto uniforme (no resampling): se differiscono
-//     l'audio suoner stonato. Tutti i device dell'utente sono 48 kHz.
+//   - Ogni coppia (strip, bus) passa da un DriftResampler che compensa il
+//     drift di clock tra device (e converte sample rate nominali diversi).
 //   - Channel layout: 1ch->2ch broadcast, 2ch->1ch average, altrimenti
 //     copia min(in_ch, out_ch) canali.
 //   - Niente parameter smoothing: muovere fader velocemente pu causare zipper.
@@ -70,6 +71,16 @@ public:
         size_t captures_opened = 0;
         size_t renders_opened  = 0;
         long   last_error = 0;
+        // Contatori glitch dall'avvio del motore (diagnostica registrazioni).
+        uint32_t underruns = 0;        // ring vuoto: MIXER ha dovuto inserire silenzio
+        uint32_t overflows = 0;        // accumulo anomalo scartato
+        uint32_t render_starved = 0;   // thread render in ritardo (buffer device vuoto)
+        uint32_t capture_glitches = 0; // discontinuita' segnalate da WASAPI in cattura
+        float    max_drift_ppm = 0.0f; // drift di clock compensato (valore assoluto max)
+        uint32_t totalGlitches() const
+        {
+            return underruns + overflows + render_starved + capture_glitches;
+        }
         std::string description;
     };
     Status getStatus() const;
@@ -106,6 +117,9 @@ private:
         // -1 = strip non routata a quel bus (o bus inattivo).
         // Necessario per il fan-out: ogni (strip,bus) consumer ha il suo ring.
         std::vector<int>    reader_idx_per_bus;
+        // Per ogni bus, il resampler di compensazione drift del lettore
+        // (nullptr se non routata). Usato solo dal thread render di quel bus.
+        std::vector<std::unique_ptr<DriftResampler>> resampler_per_bus;
         // Peak meter post-fader (canali 0=L, 1=R). Aggiornato dal thread audio,
         // letto e azzerato dalla UI via readStripPeak().
         std::atomic<float>  peak_meter[2]{};

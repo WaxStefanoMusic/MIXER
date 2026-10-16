@@ -69,6 +69,19 @@ public:
         return rings_[reader_idx]->pop(dst, samples);
     }
 
+    // Scarta `samples` sample dal ring del lettore `reader_idx`.
+    size_t skip(size_t reader_idx, size_t samples) noexcept
+    {
+        if (reader_idx >= rings_.size() || !rings_[reader_idx]) return 0;
+        return rings_[reader_idx]->skip(samples);
+    }
+
+    // Pacchetto WASAPI piu' grande visto finora (frame). 0 = nessuno ancora.
+    uint32_t maxPacketFrames() const noexcept
+    {
+        return max_packet_frames_.load(std::memory_order_relaxed);
+    }
+
     // Quanti sample pronti nel ring buffer del lettore `reader_idx`.
     size_t available(size_t reader_idx) const noexcept
     {
@@ -85,6 +98,12 @@ public:
     {
         return overrun_frames_.load(std::memory_order_relaxed);
     }
+    // Pacchetti segnalati da WASAPI con DATA_DISCONTINUITY (glitch a monte
+    // di MIXER: driver o motore audio di Windows in ritardo).
+    uint32_t discontinuities() const noexcept
+    {
+        return discontinuities_.load(std::memory_order_relaxed);
+    }
 
 private:
     void threadMain();
@@ -95,6 +114,8 @@ private:
     std::atomic<long>           last_error_{0};
     std::atomic<uint64_t>       total_frames_{0};
     std::atomic<uint64_t>       overrun_frames_{0};
+    std::atomic<uint32_t>       max_packet_frames_{0};
+    std::atomic<uint32_t>       discontinuities_{0};
 
     std::wstring                device_id_;
     bool                        loopback_ = false;

@@ -34,6 +34,7 @@ bool WasapiRenderStream::start(const std::wstring& device_id, RenderPullCallback
     lowlat_active_    = false;
     stop_requested_.store(false, std::memory_order_release);
     last_error_.store(0, std::memory_order_release);
+    starved_.store(0, std::memory_order_relaxed);
 
     // Avvio thread; il thread far l'attivazione COM e l'apertura del client,
     // poi imposter running_=true. Aspettiamo qui che running_ diventi true
@@ -237,6 +238,7 @@ void WasapiRenderStream::threadMain()
     // 6. Aumenta priorit del thread audio via MMCSS.
     DWORD mmcss_task = 0;
     HANDLE mmcss = ::AvSetMmThreadCharacteristicsW(L"Pro Audio", &mmcss_task);
+    if (mmcss) ::AvSetMmThreadPriority(mmcss, AVRT_PRIORITY_CRITICAL);
 
     hr = client->Start();
     if (FAILED(hr))
@@ -277,6 +279,10 @@ void WasapiRenderStream::threadMain()
         {
             UINT32 padding = 0;
             if (FAILED(client->GetCurrentPadding(&padding))) continue;
+            // Buffer del device completamente vuoto al risveglio: il thread
+            // e' arrivato in ritardo e Windows ha gia' suonato silenzio.
+            if (padding == 0)
+                starved_.fetch_add(1, std::memory_order_relaxed);
             frames_avail = frames_total - padding;
         }
         if (frames_avail == 0) continue;

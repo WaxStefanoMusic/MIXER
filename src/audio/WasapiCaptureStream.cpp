@@ -43,8 +43,10 @@ bool WasapiCaptureStream::start(const std::wstring& device_id,
     last_error_.store(0, std::memory_order_release);
     total_frames_.store(0, std::memory_order_relaxed);
     overrun_frames_.store(0, std::memory_order_relaxed);
+    max_packet_frames_.store(0, std::memory_order_relaxed);
+    discontinuities_.store(0, std::memory_order_relaxed);
 
-    thread_ = std::thread(&WasapiCaptureStream::threadMain, this);
+    thread_ =std::thread(&WasapiCaptureStream::threadMain, this);
 
     // Attendi che il thread parta (running=true) o termini con errore.
     while (!running_.load(std::memory_order_acquire))
@@ -231,6 +233,7 @@ void WasapiCaptureStream::threadMain()
 
     DWORD mmcss_task = 0;
     HANDLE mmcss = ::AvSetMmThreadCharacteristicsW(L"Pro Audio", &mmcss_task);
+    if (mmcss) ::AvSetMmThreadPriority(mmcss, AVRT_PRIORITY_CRITICAL);
 
     hr = client->Start();
     if (FAILED(hr))
@@ -274,6 +277,12 @@ void WasapiCaptureStream::threadMain()
             }
 
             const size_t samples_in_pkt = (size_t)frames * channels_;
+            if (frames > max_packet_frames_.load(std::memory_order_relaxed))
+                max_packet_frames_.store(frames, std::memory_order_relaxed);
+            // (il primo pacchetto dopo Start() porta sempre il flag: ignoralo)
+            if ((pkt_flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY)
+                && total_frames_.load(std::memory_order_relaxed) > 0)
+                discontinuities_.fetch_add(1, std::memory_order_relaxed);
 
             // Sorgente float32 da spingere nei ring:
             //  - silenzio  buffer di zeri
@@ -305,11 +314,17 @@ void WasapiCaptureStream::threadMain()
 
             // Fan-out: scrivi gli stessi sample su tutti i ring (un consumer
             // per ring). Il ring "pi indietro" determina l'overrun count.
+            // Se il ring e' pieno si scrivono solo frame INTERI: un push
+            // parziale a meta' frame scambierebbe L/R per il resto della
+            // sessione.
             size_t min_pushed = samples_in_pkt;
             for (auto& ring : rings_)
             {
                 if (!ring) continue;
-                const size_t pushed = ring->push(src, samples_in_pkt);
+                size_t room = ring->writeAvailable();
+                room -= room % channels_;
+                const size_t pushed = ring->push(
+                    src, samples_in_pkt < room ? samples_in_pkt : room);
                 if (pushed < min_pushed) min_pushed = pushed;
             }
             if (min_pushed < samples_in_pkt)

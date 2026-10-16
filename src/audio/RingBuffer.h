@@ -79,6 +79,17 @@ public:
         return to_read;
     }
 
+    // Scarta fino a n sample lato consumer. Ritorna quanti ne ha scartati.
+    size_t skip(size_t n) noexcept
+    {
+        const size_t h = head_.load(std::memory_order_acquire);
+        const size_t t = tail_.load(std::memory_order_relaxed);
+        const size_t avail = (h - t) & mask_;
+        const size_t to_skip = (n < avail) ? n : avail;
+        tail_.store(t + to_skip, std::memory_order_release);
+        return to_skip;
+    }
+
     void reset() noexcept
     {
         head_.store(0, std::memory_order_relaxed);

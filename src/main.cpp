@@ -1228,6 +1228,24 @@ static void RenderMixerPanel(bool* p_open,
             ImGui::SameLine();
             ImGui::TextDisabled("%zu capture / %zu render",
                                 st.captures_opened, st.renders_opened);
+            ImGui::SameLine();
+            const uint32_t glitches = st.totalGlitches();
+            if (glitches == 0)
+                ImGui::TextDisabled(" | glitch: 0");
+            else
+                ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f),
+                                   " | glitch: %u", glitches);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Buchi audio dall'avvio del motore:\n"
+                    "  Buffer vuoto (MIXER)       : %u\n"
+                    "  Accumulo scartato (MIXER)  : %u\n"
+                    "  Render in ritardo (sistema): %u\n"
+                    "  Glitch in cattura (Windows/driver): %u\n"
+                    "\n"
+                    "Correzione clock attuale (max): %.0f ppm",
+                    st.underruns, st.overflows, st.render_starved,
+                    st.capture_glitches, st.max_drift_ppm);
             if (st.last_error != 0)
             {
                 ImGui::SameLine();
@@ -1343,11 +1361,15 @@ static void RenderMixerPanel(bool* p_open,
         const int ren_period = (ui.exclusive_mode || ui.lowlat_mode)
             ? eff_iac3 : eff_buffer;
 
-        // Cuffie: 10 (Win engine sorgente) + cap_period + ren_period + 5 (USB).
-        // Caso shared puro = 15 + 2*eff_buffer (equivalente).
+        // Buffer anti-drift del DriftResampler (target del ring): una
+        // richiesta render + un pacchetto di cattura + 5 ms di margine.
+        const int drift_buf = cap_period + ren_period + 5;
+
+        // Cuffie: 10 (Win engine sorgente) + cap_period + ren_period + 5 (USB)
+        //         + buffer anti-drift.
         const int lat_razer = (ui.exclusive_mode || ui.lowlat_mode)
-            ? (10 + cap_period + ren_period + 5)
-            : (15 + 2 * eff_buffer);
+            ? (10 + cap_period + ren_period + 5 + drift_buf)
+            : (15 + 2 * eff_buffer + drift_buf);
         // Elgato/OBS:
         //   bypass    = Game->HDMI->Elgato->OBS, niente MIXER  ~27 ms FISSO
         //               (n exclusive n IAC3 lo toccano: non passa MIXER)
@@ -1355,8 +1377,8 @@ static void RenderMixerPanel(bool* p_open,
         const int lat_elgato = bypass_mode
             ? 27
             : ((ui.exclusive_mode || ui.lowlat_mode)
-                ? (13 + cap_period + ren_period)
-                : (28 + 2 * eff_buffer));
+                ? (13 + cap_period + ren_period + drift_buf)
+                : (28 + 2 * eff_buffer + drift_buf));
 
         const char* mode_tag = ui.exclusive_mode ? " EXCL"
                               : (ui.lowlat_mode  ? " IAC3" : "");

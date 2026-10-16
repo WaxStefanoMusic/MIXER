@@ -55,6 +55,10 @@ public:
     // Ultimo errore HRESULT (per debug UI). 0 se nessun errore.
     long lastError() const noexcept { return last_error_.load(std::memory_order_acquire); }
 
+    // Risvegli (shared mode) trovando il buffer del device gia' vuoto:
+    // ogni evento = un buco udibile causato da un ritardo del thread render.
+    uint32_t starvations() const noexcept { return starved_.load(std::memory_order_relaxed); }
+
 private:
     void threadMain();
 
@@ -62,6 +66,7 @@ private:
     std::atomic<bool>    running_{false};
     std::atomic<bool>    stop_requested_{false};
     std::atomic<long>    last_error_{0};
+    std::atomic<uint32_t> starved_{0};
 
     std::wstring         device_id_;
     RenderPullCallback   pull_;
